@@ -46,6 +46,18 @@ public class Java8StreamEncoder implements Encoder {
   private final byte[] endDelimiter;
   private final byte[] delimiter;
 
+  public Java8StreamEncoder() {
+    this(new Encoder.Default());
+  }
+
+  public Java8StreamEncoder(byte[] delimiter) {
+    this(new Encoder.Default(), null, null, delimiter);
+  }
+
+  public Java8StreamEncoder(final byte[] startDelimiter, final byte[] endDelimiter, byte[] delimiter) {
+    this(new Encoder.Default(), startDelimiter, endDelimiter, delimiter);
+  }
+
   public Java8StreamEncoder(final Encoder chunkEncoder) {
     this.chunkEncoder = chunkEncoder;
     this.startDelimiter = null;

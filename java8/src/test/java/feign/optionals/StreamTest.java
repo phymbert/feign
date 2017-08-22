@@ -21,6 +21,8 @@ import org.junit.Test;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -50,6 +52,9 @@ public class StreamTest {
 
     @RequestLine("GET /streamInputAndOutput")
     Stream<Car> largeData(Stream<Car> input);
+
+    @RequestLine("GET /streamBytes")
+    void streamBytes(Stream<byte[]> data);
 
     class Car {
       public String name;
@@ -117,6 +122,29 @@ public class StreamTest {
     }
     RecordedRequest recordedRequest = server.takeRequest();
     assertThat(recordedRequest.getBody().readUtf8()).isEqualTo(carsJson);
+  }
+
+  @Test
+  public void streamsBytes() throws IOException, InterruptedException {
+    MockWebServer server = new MockWebServer();
+    server.enqueue(new MockResponse());
+
+    StreamInterface api = Feign.builder()
+        .encoder(new Java8StreamEncoder(null, "\r\n".getBytes(),"\r\n".getBytes()))
+        .target(StreamInterface.class, server.url("/").toString());
+
+    Path file = Files.createTempFile("big_", "file");
+    try {
+      Files.write(file, Arrays.asList("1","2","3","..."));
+      try (Stream<byte[]> data = Files.lines(file).map(String::getBytes)) {
+        api.streamBytes(data);
+
+        RecordedRequest recordedRequest = server.takeRequest();
+        assertThat(recordedRequest.getBody().readByteArray()).isEqualTo(Files.readAllBytes(file));
+      }
+    } finally {
+      Files.delete(file);
+    }
   }
 
   private List<StreamInterface.Car> cars(ObjectMapper mapper) throws IOException {

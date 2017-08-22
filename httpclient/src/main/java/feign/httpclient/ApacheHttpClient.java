@@ -28,6 +28,7 @@ import org.apache.http.client.utils.URIBuilder;
 import org.apache.http.client.utils.URLEncodedUtils;
 import org.apache.http.entity.ByteArrayEntity;
 import org.apache.http.entity.ContentType;
+import org.apache.http.entity.InputStreamEntity;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.util.EntityUtils;
@@ -134,12 +135,14 @@ public final class ApacheHttpClient implements Client {
     }
 
     //request body
-    if (request.body() != null) {
+    if (request.bodyAsStream() != null || request.body() != null) {
       HttpEntity entity = null;
       if (request.charset() != null) {
         ContentType contentType = getContentType(request);
         String content = new String(request.body(), request.charset());
         entity = new StringEntity(content, contentType);
+      } else if (request.bodyAsStream() != null) {
+        entity = new InputStreamEntity(request.bodyAsStream());
       } else {
         entity = new ByteArrayEntity(request.body());
       }

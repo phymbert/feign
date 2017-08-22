@@ -15,11 +15,15 @@
  */
 package feign;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.Charset;
 import java.util.Collection;
 import java.util.Map;
 
 import static feign.Util.checkNotNull;
+import static feign.Util.ensureClosed;
+import static feign.Util.toByteArray;
 import static feign.Util.valuesOrEmpty;
 
 /**
@@ -36,10 +40,20 @@ public final class Request {
     return new Request(method, url, headers, body, charset);
   }
 
+  /**
+   * No parameters can be null except {@code body} and {@code charset}. All parameters must be
+   * effectively immutable, via safe copies, not mutating or otherwise.
+   */
+  public static Request create(String method, String url, Map<String, Collection<String>> headers,
+                               InputStream bodyAsStream) {
+    return new Request(method, url, headers, bodyAsStream);
+  }
+
   private final String method;
   private final String url;
   private final Map<String, Collection<String>> headers;
-  private final byte[] body;
+  private byte[] body;
+  private InputStream bodyAsStream;
   private final Charset charset;
 
   Request(String method, String url, Map<String, Collection<String>> headers, byte[] body,
@@ -48,7 +62,16 @@ public final class Request {
     this.url = checkNotNull(url, "url");
     this.headers = checkNotNull(headers, "headers of %s %s", method, url);
     this.body = body; // nullable
+    this.bodyAsStream = null; // nullable
     this.charset = charset; // nullable
+  }
+
+  Request(String method, String url, Map<String, Collection<String>> headers, InputStream bodyAsStream) {
+    this.method = checkNotNull(method, "method of %s", url);
+    this.url = checkNotNull(url, "url");
+    this.headers = checkNotNull(headers, "headers of %s %s", method, url);
+    this.bodyAsStream = bodyAsStream; // nullable
+    this.charset = null; // nullable
   }
 
   /* Method to invoke on the server. */
@@ -82,7 +105,26 @@ public final class Request {
    * @see #charset()
    */
   public byte[] body() {
+    if (body != null) {
+      return body;
+    } else if (bodyAsStream != null) {
+      try {
+        body = toByteArray(bodyAsStream);
+      } catch (IOException e) {
+        throw new FeignException(e.getMessage(), e);
+      } finally {
+        ensureClosed(bodyAsStream);
+        bodyAsStream = null;
+      }
+    }
     return body;
+  }
+
+  /**
+   * If present, this is the body stream to send to the server..
+   */
+  public InputStream bodyAsStream() {
+    return bodyAsStream;
   }
 
   @Override
@@ -95,7 +137,7 @@ public final class Request {
       }
     }
     if (body != null) {
-      builder.append('\n').append(charset != null ? new String(body, charset) : "Binary data");
+      builder.append('\n').append(charset != null ? new String(body(), charset) : "Binary data");
     }
     return builder.toString();
   }

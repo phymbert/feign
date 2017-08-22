@@ -13,6 +13,7 @@
  */
 package feign.optionals;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.junit.Test;
@@ -21,27 +22,34 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.Arrays;
+import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import feign.Feign;
 import feign.RequestLine;
 import feign.codec.DecodeException;
+import feign.jackson.JacksonEncoder;
 import feign.jackson.JacksonIterator;
 import feign.stream.Java8StreamDecoder;
+import feign.stream.Java8StreamEncoder;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
+import okhttp3.mockwebserver.RecordedRequest;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-public class StreamDecoderTest {
+public class StreamTest {
 
   interface StreamInterface {
     @RequestLine("GET /")
     Stream<String> get();
 
-    @RequestLine("GET /cars")
+    @RequestLine("GET /streamOutput")
     Stream<Car> getCars();
+
+    @RequestLine("GET /streamInputAndOutput")
+    Stream<Car> largeData(Stream<Car> input);
 
     class Car {
       public String name;
@@ -50,16 +58,13 @@ public class StreamDecoderTest {
   }
 
   private String carsJson = ""//
-      + "[\n"//
-      + "  {\n"//
-      + "    \"name\": \"Megane\",\n"//
-      + "    \"manufacturer\": \"Renault\"\n"//
-      + "  },\n"//
-      + "  {\n"//
-      + "    \"name\": \"C4\",\n"//
-      + "    \"manufacturer\": \"Citroën\"\n"//
-      + "  }\n"//
-      + "]\n";
+      + "[{\r\n"//
+      + "  \"name\" : \"Megane\",\r\n"//
+      + "  \"manufacturer\" : \"Renault\"\r\n"//
+      + "},{\r\n"//
+      + "  \"name\" : \"C4\",\r\n"//
+      + "  \"manufacturer\" : \"Citroën\"\r\n"//
+      + "}]";
 
   @Test
   public void simpleStreamTest() throws IOException, InterruptedException {
@@ -89,10 +94,33 @@ public class StreamDecoderTest {
 
     StreamInterface api = Feign.builder()
         .decoder(new Java8StreamDecoder((type, response) -> JacksonIterator.<StreamInterface.Car>builder().of(type).mapper(mapper).response(response).build()))
-              .target(StreamInterface.class, server.url("/").toString());
+        .target(StreamInterface.class, server.url("/").toString());
 
     try (Stream<StreamInterface.Car> stream = api.getCars()) {
       assertThat(stream.collect(Collectors.toList())).hasSize(2);
     }
+  }
+
+  @Test
+  public void streamsLargeTest() throws IOException, InterruptedException {
+    MockWebServer server = new MockWebServer();
+    server.enqueue(new MockResponse().setBody(carsJson));
+
+    ObjectMapper mapper = new ObjectMapper();
+    StreamInterface api = Feign.builder()
+        .decoder(new Java8StreamDecoder((type, response) -> JacksonIterator.<StreamInterface.Car>builder().of(type).mapper(mapper).response(response).build()))
+        .encoder(new Java8StreamEncoder(new JacksonEncoder(), "[", "]", ","))
+        .target(StreamInterface.class, server.url("/").toString());
+
+    try (Stream<StreamInterface.Car> stream = api.largeData(cars(mapper).stream())) {
+      assertThat(stream.collect(Collectors.toList())).hasSize(2);
+    }
+    RecordedRequest recordedRequest = server.takeRequest();
+    assertThat(recordedRequest.getBody().readUtf8()).isEqualTo(carsJson);
+  }
+
+  private List<StreamInterface.Car> cars(ObjectMapper mapper) throws IOException {
+    return mapper.readValue(carsJson,
+          new TypeReference<List<StreamInterface.Car>>(){});
   }
 }

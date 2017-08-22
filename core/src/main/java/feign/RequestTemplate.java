@@ -15,6 +15,8 @@
  */
 package feign;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.io.Serializable;
 import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
@@ -36,6 +38,7 @@ import static feign.Util.checkArgument;
 import static feign.Util.checkNotNull;
 import static feign.Util.emptyToNull;
 import static feign.Util.toArray;
+import static feign.Util.toByteArray;
 import static feign.Util.valuesOrEmpty;
 
 /**
@@ -56,6 +59,7 @@ public final class RequestTemplate implements Serializable {
   private StringBuilder url = new StringBuilder();
   private transient Charset charset;
   private byte[] body;
+  private InputStream bodyAsStream;
   private String bodyTemplate;
   private boolean decodeSlash = true;
 
@@ -71,6 +75,7 @@ public final class RequestTemplate implements Serializable {
     this.headers.putAll(toCopy.headers);
     this.charset = toCopy.charset;
     this.body = toCopy.body;
+    this.bodyAsStream = toCopy.bodyAsStream;
     this.bodyTemplate = toCopy.bodyTemplate;
     this.decodeSlash = toCopy.decodeSlash;
   }
@@ -256,11 +261,18 @@ public final class RequestTemplate implements Serializable {
   public Request request() {
     Map<String, Collection<String>> safeCopy = new LinkedHashMap<String, Collection<String>>();
     safeCopy.putAll(headers);
-    return Request.create(
-        method, url + queryLine(),
-        Collections.unmodifiableMap(safeCopy),
-        body, charset
-    );
+    if (bodyAsStream != null) {
+      return Request.create(
+          method, url + queryLine(),
+          Collections.unmodifiableMap(safeCopy),
+          bodyAsStream);
+    } else {
+      return Request.create(
+          method, url + queryLine(),
+          Collections.unmodifiableMap(safeCopy),
+          body, charset
+      );
+    }
   }
 
   /* @see Request#method() */
@@ -512,6 +524,19 @@ public final class RequestTemplate implements Serializable {
    *
    * @see Request#body()
    */
+  public RequestTemplate streamBody(InputStream bodyAsStream, Integer bodyLength) {
+    this.bodyTemplate = null;
+    this.bodyAsStream = bodyAsStream;
+    header(CONTENT_LENGTH, String.valueOf(bodyLength));
+    return this;
+  }
+
+  /**
+   * replaces the {@link feign.Util#CONTENT_LENGTH} header. <br> Usually populated by an {@link
+   * feign.codec.Encoder}.
+   *
+   * @see Request#body()
+   */
   public RequestTemplate body(String bodyText) {
     byte[] bodyData = bodyText != null ? bodyText.getBytes(UTF_8) : null;
     return body(bodyData, UTF_8);
@@ -530,7 +555,23 @@ public final class RequestTemplate implements Serializable {
    * @see Request#body()
    */
   public byte[] body() {
+    if (body != null) {
+      return body;
+    } else if (bodyAsStream != null) {
+      try {
+        body = toByteArray(bodyAsStream);
+      } catch (IOException e) {
+        throw new FeignException(e.getMessage(), e);
+      }
+    }
     return body;
+  }
+
+  /**
+   * @see Request#bodyAsStream()
+   */
+  public InputStream bodyAsStream() {
+    return bodyAsStream;
   }
 
   /**

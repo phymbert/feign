@@ -15,8 +15,6 @@
  */
 package feign;
 
-import static java.lang.String.format;
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -39,6 +37,8 @@ import static feign.Util.CONTENT_ENCODING;
 import static feign.Util.CONTENT_LENGTH;
 import static feign.Util.ENCODING_DEFLATE;
 import static feign.Util.ENCODING_GZIP;
+import static feign.Util.copy;
+import static java.lang.String.format;
 
 /**
  * Submits HTTP {@link Request requests}. Implementations are expected to be thread-safe.
@@ -123,7 +123,7 @@ public interface Client {
         connection.addRequestProperty("Accept", "*/*");
       }
 
-      if (request.body() != null) {
+      if (request.bodyAsStream() != null || request.body() != null) {
         if (contentLength != null) {
           connection.setFixedLengthStreamingMode(contentLength);
         } else {
@@ -137,7 +137,11 @@ public interface Client {
           out = new DeflaterOutputStream(out);
         }
         try {
-          out.write(request.body());
+          if (request.bodyAsStream() != null) {
+            copy(request.bodyAsStream(), out);
+          } else {
+            out.write(request.body());
+          }
         } finally {
           try {
             out.close();
